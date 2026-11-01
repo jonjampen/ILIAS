@@ -441,19 +441,17 @@ class ilExerciseManagementGUI
 
                     $ilToolbar->addSeparator();
                 }
-            } elseif ($this->exercise->hasTutorFeedbackFile()) {
-                if (!$this->assignment->getAssignmentType()->usesTeams()) {
+            }
+            if ($this->exercise->hasTutorFeedbackFile()) {
+                $mem_data = $this->assignment->getMemberListData();
+                if (count($mem_data) > 0) {
+                    // multi-feedback (for individual and team assignments)
+                    $ilToolbar->addButton(
+                        $this->lng->txt("exc_multi_feedback"),
+                        $this->ctrl->getLinkTarget($this, "showMultiFeedback")
+                    );
 
-                    $mem_data = $this->assignment->getMemberListData();
-                    if (count($mem_data) > 0) {
-                        // multi-feedback
-                        $ilToolbar->addButton(
-                            $this->lng->txt("exc_multi_feedback"),
-                            $this->ctrl->getLinkTarget($this, "showMultiFeedback")
-                        );
-
-                        $ilToolbar->addSeparator();
-                    }
+                    $ilToolbar->addSeparator();
                 }
             }
 
@@ -1856,7 +1854,12 @@ class ilExerciseManagementGUI
         $lng = $this->lng;
         $tpl = $this->tpl;
 
-        $this->tpl->setOnScreenMessage('info', $lng->txt("exc_multi_feedb_info"));
+        $this->tpl->setOnScreenMessage(
+            'info',
+            $lng->txt($this->assignment->getAssignmentType()->usesTeams()
+                ? "exc_multi_feedb_info_team"
+                : "exc_multi_feedb_info")
+        );
 
         $this->addSubTabs("assignment");
 

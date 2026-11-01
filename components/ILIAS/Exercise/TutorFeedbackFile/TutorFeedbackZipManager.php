@@ -27,7 +27,10 @@ use ILIAS\FileUpload\DTO\UploadResult;
 class TutorFeedbackZipManager
 {
     protected \ilExcTutorFeedbackFileStakeholder $user_feedback_stakeholder;
+    protected \ilExcTutorTeamFeedbackFileStakeholder $team_feedback_stakeholder;
     protected TutorFeedbackFileRepository $participant_repo;
+    protected TutorFeedbackFileTeamRepository $team_repo;
+    protected \ILIAS\Exercise\Team\TeamDBRepository $team_db_repo;
     protected \ilExcTutorFeedbackZipStakeholder $stakeholder;
     protected int $ass_id;
     protected InternalDomainService $domain;
@@ -44,6 +47,33 @@ class TutorFeedbackZipManager
         $this->stakeholder = $stakeholder;
         $this->user_feedback_stakeholder = $user_feedback_stakeholder;
         $this->participant_repo = $repo->tutorFeedbackFile();
+        $this->team_repo = $repo->tutorFeedbackFileTeam();
+        $this->team_db_repo = $repo->team();
+        $this->team_feedback_stakeholder = new \ilExcTutorTeamFeedbackFileStakeholder();
+    }
+
+    public function usesTeams(int $ass_id): bool
+    {
+        $types = \ilExAssignmentTypes::getInstance();
+        return $types->getById(\ilExAssignment::lookupType($ass_id))->usesTeams();
+    }
+
+    /**
+     * Get all teams of an assignment that have at least one of the given members
+     *
+     * @param int[] $member_ids
+     * @return array<int, int[]> team id => member user ids
+     */
+    protected function getTeamsOfMembers(int $ass_id, array $member_ids): array
+    {
+        $teams = [];
+        foreach ($this->team_db_repo->getUserTeamMap($ass_id) as $user_id => $team_id) {
+            $teams[$team_id][] = $user_id;
+        }
+        return array_filter(
+            $teams,
+            static fn(array $team_members): bool => count(array_intersect($team_members, $member_ids)) > 0
+        );
     }
 
     protected function toAscii(string $filename): string
@@ -77,11 +107,30 @@ class TutorFeedbackZipManager
             $exercise->getRefId(),
             $mems
         );
-        foreach ($mems as $mem) {
-            $name = \ilObjUser::_lookupName($mem);
-            $subdir = $name["lastname"] . "_" . $name["firstname"] . "_" . $name["login"] . "_" . $name["user_id"];
-            $subdir = $this->toAscii($subdir);
-            $zip->addEmptyDir($base_name . "/" . $subdir);
+        $dir_name = new TutorFeedbackZipDirName();
+        if ($this->usesTeams($assignment->getId())) {
+            // create subfolders Team_<lastname1>_<lastname2>_..._t<team_id> for each team
+            foreach ($this->getTeamsOfMembers($assignment->getId(), $mems) as $team_id => $team_members) {
+                sort($team_members);
+                $lastnames = array_map(
+                    static fn(int $user_id): string => (string) \ilObjUser::_lookupName($user_id)["lastname"],
+                    $team_members
+                );
+                $subdir = $this->toAscii($dir_name->forTeam($team_id, $lastnames));
+                $zip->addEmptyDir($base_name . "/" . $subdir);
+            }
+        } else {
+            foreach ($mems as $mem) {
+                $name = \ilObjUser::_lookupName($mem);
+                $subdir = $dir_name->forUser(
+                    (string) $name["lastname"],
+                    (string) $name["firstname"],
+                    (string) $name["login"],
+                    (int) $name["user_id"]
+                );
+                $subdir = $this->toAscii($subdir);
+                $zip->addEmptyDir($base_name . "/" . $subdir);
+            }
         }
         $zip->close();
         $ret = new \StdClass();
@@ -109,6 +158,13 @@ class TutorFeedbackZipManager
         $exmem = new \ilExerciseMembers($exc);
         $mems = $exmem->getMembers();
 
+        if ($this->usesTeams($ass_id)) {
+            return $this->repo->getTeamFiles(
+                $ass_id,
+                $tutor_id,
+                $this->getTeamsOfMembers($ass_id, $mems)
+            );
+        }
         return $this->repo->getFiles($ass_id, $tutor_id, $mems);
     }
 
@@ -124,18 +180,30 @@ class TutorFeedbackZipManager
         array $file_md5s
     ): void {
         $notification = $this->domain->notification($exc->getRefId());
+        $uses_teams = $this->usesTeams($ass_id);
+        // in team assignments user_id is a representative member of the team,
+        // the team repository resolves the team collection via this user
+        $target_repo = $uses_teams
+            ? $this->team_repo
+            : $this->participant_repo;
+        $target_stakeholder = $uses_teams
+            ? $this->team_feedback_stakeholder
+            : $this->user_feedback_stakeholder;
         foreach ($this->getFiles($exc, $ass_id, $tutor_id) as $file) {
             $user_id = (int) $file["user_id"];
             $md5 = $this->getFileMd5((int) $file["user_id"], $file["file"]);
             if (is_array($file_md5s[$user_id] ?? null) && in_array($md5, $file_md5s[$user_id])) {
-                $target_collection = $this->participant_repo->getCollection($ass_id, $user_id);
+                if (!$target_repo->hasCollection($ass_id, $user_id)) {
+                    $target_repo->createCollection($ass_id, $user_id);
+                }
+                $target_collection = $target_repo->getCollection($ass_id, $user_id);
                 if ($target_collection) {
                     $this->repo->addFileFromZipToCollection(
                         $ass_id,
                         $tutor_id,
                         $file["full_entry"],
                         $target_collection,
-                        $this->user_feedback_stakeholder
+                        $target_stakeholder
                     );
                 }
 
@@ -146,8 +214,8 @@ class TutorFeedbackZipManager
 
                 if ($feedback_id) {
                     if ($noti_rec_ids) {
-                        foreach ($noti_rec_ids as $user_id) {
-                            $member_status = $ass->getMemberStatus($user_id);
+                        foreach ($noti_rec_ids as $noti_user_id) {
+                            $member_status = $ass->getMemberStatus($noti_user_id);
                             $member_status->setFeedback(true);
                             $member_status->update();
                         }

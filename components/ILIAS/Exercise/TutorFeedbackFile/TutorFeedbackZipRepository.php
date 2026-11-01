@@ -90,9 +90,15 @@ class TutorFeedbackZipRepository
         return $rid;
     }
 
-    public function getFiles(int $ass_id, int $tutor_id, array $valid_members): array
+    /**
+     * Get all file entries of the uploaded zip that are located in a
+     * participant (or team) directory: <base_dir>/<participant_dir>/<file>
+     *
+     * @return array<array{dir: string, file: string, full_entry: string}>
+     */
+    public function getEntries(int $ass_id, int $tutor_id): array
     {
-        $files = [];
+        $entries = [];
         $rid = $this->getIdStringForAssAndTutorId($ass_id, $tutor_id);
         if ($rid !== "") {
             $zip = new \ZipArchive();
@@ -103,24 +109,65 @@ class TutorFeedbackZipRepository
                     $main_parts = explode("/", $full_entry);
                     if (count($main_parts) === 3 && trim($main_parts[2]) !== ""
                         && substr($main_parts[2], 0, 1) !== ".") {
-                        $dir = $main_parts[1];
-                        $file = $main_parts[2];
-                        $dir_parts = explode("_", $dir);
-                        $user_id = (int) $dir_parts[count($dir_parts) - 1];
-                        if (in_array($user_id, $valid_members)) {
-                            // read dir of user
-                            $name = \ilObjUser::_lookupName($user_id);
-                            $files[] = array(
-                                    "lastname" => $name["lastname"],
-                                    "firstname" => $name["firstname"],
-                                    "login" => $name["login"],
-                                    "user_id" => (int) $name["user_id"],
-                                    "full_entry" => $full_entry,
-                                    "file" => $file);
-                        }
+                        $entries[] = [
+                            "dir" => $main_parts[1],
+                            "file" => $main_parts[2],
+                            "full_entry" => $full_entry
+                        ];
                     }
                 }
                 $zip->close();
+            }
+        }
+        return $entries;
+    }
+
+    public function getFiles(int $ass_id, int $tutor_id, array $valid_members): array
+    {
+        $files = [];
+        $dir_name = new TutorFeedbackZipDirName();
+        foreach ($this->getEntries($ass_id, $tutor_id) as $entry) {
+            $user_id = $dir_name->parseUserId($entry["dir"]);
+            if (in_array($user_id, $valid_members)) {
+                // read dir of user
+                $name = \ilObjUser::_lookupName($user_id);
+                $files[] = array(
+                        "lastname" => $name["lastname"],
+                        "firstname" => $name["firstname"],
+                        "login" => $name["login"],
+                        "user_id" => (int) $name["user_id"],
+                        "full_entry" => $entry["full_entry"],
+                        "file" => $entry["file"]);
+            }
+        }
+        return $files;
+    }
+
+    /**
+     * @param array<int, int[]> $valid_teams team id => member user ids
+     */
+    public function getTeamFiles(int $ass_id, int $tutor_id, array $valid_teams): array
+    {
+        $files = [];
+        $dir_name = new TutorFeedbackZipDirName();
+        foreach ($this->getEntries($ass_id, $tutor_id) as $entry) {
+            $team_id = $dir_name->parseTeamId($entry["dir"]);
+            if ($team_id > 0 && isset($valid_teams[$team_id]) && count($valid_teams[$team_id]) > 0) {
+                $member_ids = $valid_teams[$team_id];
+                sort($member_ids);
+                $members = [];
+                foreach ($member_ids as $member_id) {
+                    $name = \ilObjUser::_lookupName($member_id);
+                    $members[] = $name["lastname"] . ", " . $name["firstname"] . " [" . $name["login"] . "]";
+                }
+                $files[] = [
+                    "team_id" => $team_id,
+                    // a stable representative member, the team is resolved via this user
+                    "user_id" => $member_ids[0],
+                    "members" => $members,
+                    "full_entry" => $entry["full_entry"],
+                    "file" => $entry["file"]
+                ];
             }
         }
         return $files;

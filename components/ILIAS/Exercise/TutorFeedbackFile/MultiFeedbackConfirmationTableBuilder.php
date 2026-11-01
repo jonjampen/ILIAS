@@ -53,8 +53,20 @@ class MultiFeedbackConfirmationTableBuilder extends CommonTableBuilder
         return $this->domain->multiFeedbackConfirmationRetrieval($this->assignment);
     }
 
+    protected function usesTeams(): bool
+    {
+        return $this->assignment->getAssignmentType()->usesTeams();
+    }
+
     protected function transformRow(array $data_row): array
     {
+        if ($this->usesTeams()) {
+            return [
+                'id' => $data_row['id'],
+                'members' => $data_row['members'],
+                'file' => $data_row['file']
+            ];
+        }
         return [
             'id' => $data_row['id'],
             'lastname' => $data_row['lastname'],
@@ -67,6 +79,13 @@ class MultiFeedbackConfirmationTableBuilder extends CommonTableBuilder
     protected function build(TableAdapterGUI $table): TableAdapterGUI
     {
         $lng = $this->domain->lng();
+
+        if ($this->usesTeams()) {
+            return $table
+                ->listingColumn('members', $lng->txt('exc_team'))
+                ->textColumn('file', $lng->txt('file'))
+                ->multiAction('saveMultiFeedback', $lng->txt('save'));
+        }
 
         return $table
             ->textColumn('lastname', $lng->txt('lastname'))

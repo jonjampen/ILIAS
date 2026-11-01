@@ -557,6 +557,9 @@ msgstr "Are you sure that you want to remove the participants from all assignmen
 msgid "exc_multi_feedb_info"
 msgstr "On this screen you can upload feedback for multiple participants in one file. First click on ‘Download ZIP Structure’, save the ZIP file and extract it on your local computer. Then put the feedback files into the corresponding user directories. Now compress the whole directory as one ZIP file again. Browse your local filesystem for the file and select it as the ‘Multi-Feedback File’ in the form below. After that click ‘Upload’. A confirmation screen will list the files. Please avoid using any special characters in your file names."
 
+msgid "exc_multi_feedb_info_team"
+msgstr "On this screen you can upload feedback for multiple teams in one file. First click on ‘Download ZIP Structure’, save the ZIP file and extract it on your local computer. Then put the feedback files into the corresponding team directories. Now compress the whole directory as one ZIP file again. Browse your local filesystem for the file and select it as the ‘Multi-Feedback File’ in the form below. After that click ‘Upload’. A confirmation screen will list the files. The feedback files will be available for all members of the team. Please avoid using any special characters in your file names."
+
 msgid "exc_multi_feedback"
 msgstr "Evaluate Multiple Participants"
 
